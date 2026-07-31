@@ -1,0 +1,1 @@
+"""Text-removal pair construction."""

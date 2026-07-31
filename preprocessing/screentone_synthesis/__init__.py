@@ -1,0 +1,1 @@
+"""Screentone-synthesis pair construction."""
