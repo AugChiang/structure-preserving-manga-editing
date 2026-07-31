@@ -1,11 +1,7 @@
-# Inference-time Trajectory Optimization for Manga Image Editing
+# Inference-time Trajectory Optimization for Structure-Preserving Manga Image Editing
 
 [![arXiv](https://img.shields.io/badge/arXiv-2603.27790-b31b1b.svg)](https://arxiv.org/abs/2603.27790)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-
-Official implementation of **Inference-time Trajectory Optimization for Manga
-Image Editing** by [Ryosuke Furuta](https://arxiv.org/abs/2603.27790) (Mantra
-Inc. and The University of Tokyo).
 
 ## Overview
 
@@ -21,25 +17,6 @@ an empty prompt. The method:
 
 No manga images, model weights, or font files are distributed in this
 repository.
-
-## Method
-
-For each of the first \(M\) denoising steps, the sampler evaluates the edit
-prompt and an empty prompt in one batch. It forms the reconstruction target
-
-\[
-Z^*_{t_i} = X_{\mathrm{in}} - (t_N-t_i)
-v_\theta(Z_{t_i}, t_i, \emptyset, X_{\mathrm{in}})
-\]
-
-and corrects the current latent with
-
-\[
-Z_{t_i} \leftarrow (1-\alpha)Z_{t_i}+\alpha Z^*_{t_i}.
-\]
-
-The default experimental setting is \(M=3\) and \(\alpha=0.01\). See
-[Algorithm 1 in the paper](https://arxiv.org/abs/2603.27790) for details.
 
 ## Installation
 
@@ -261,7 +238,7 @@ If this work is useful in your research, please cite:
 
 ```bibtex
 @misc{furuta2026inference,
-  title         = {Inference-time Trajectory Optimization for Manga Image Editing},
+  title         = {Inference-time Trajectory Optimization for Structure-Preserving Manga Image Editing},
   author        = {Ryosuke Furuta},
   year          = {2026},
   eprint        = {2603.27790},

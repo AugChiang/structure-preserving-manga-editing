@@ -13,8 +13,8 @@
 # limitations under the License.
 #
 # This file has been modified to implement the trajectory correction described
-# in Algorithm 1 of "Inference-time Trajectory Optimization for Manga Image
-# Editing."
+# in Algorithm 1 of "Inference-time Trajectory Optimization for
+# Structure-Preserving Manga Image Editing."
 
 """FLUX.1 Kontext integration for inference-time trajectory correction."""
 
