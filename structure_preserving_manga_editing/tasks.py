@@ -16,6 +16,10 @@ TASKS = {
         prompt="Remove text. Keep everything else unchanged.",
         qwen_model_id="Qwen/Qwen-Image-Edit-2509",
     ),
+    "bar-removal": TaskConfig(
+            prompt="Remove semi-transparent black bars. Restore the screentones, halftones, lines, and shading underneath. Keep everything else unchanged.",
+            qwen_model_id="Qwen/Qwen-Image-Edit-2509",
+        ),
     "screentone-synthesis": TaskConfig(
         prompt="Convert the line art into a finished Japanese black and white monochrome manga image.",
         qwen_model_id="Qwen/Qwen-Image-Edit-2511",
