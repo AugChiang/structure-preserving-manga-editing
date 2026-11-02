@@ -53,6 +53,26 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(config["num_inference_steps"], 28)
         self.assertEqual(config["output"], "outputs/flux-kontext_text-removal.png")
 
+    def test_low_vram_options(self) -> None:
+        default = resolve_config("qwen-image-edit", arguments("text-removal"))
+        self.assertIsNone(default["transformer_gguf"])
+        self.assertFalse(default["low_vram"])
+
+        args = build_parser("qwen-image-edit").parse_args(
+            [
+                "--task",
+                "text-removal",
+                "--input",
+                "input.png",
+                "--transformer-gguf",
+                "https://huggingface.co/a/b/blob/main/model.gguf",
+                "--low-vram",
+            ]
+        )
+        config = resolve_config("qwen-image-edit", args)
+        self.assertEqual(config["transformer_gguf"], "https://huggingface.co/a/b/blob/main/model.gguf")
+        self.assertTrue(config["low_vram"])
+
     def test_input_is_required(self) -> None:
         parser = build_parser("flux-kontext")
         with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):

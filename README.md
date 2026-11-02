@@ -128,6 +128,49 @@ Screentone synthesis:
 Convert the line art into a finished Japanese black and white monochrome manga image.
 ```
 
+### Running on a 12 GB GPU
+
+The full-precision checkpoints need far more than 12 GB of VRAM. Two optional
+flags reduce memory use: `--transformer-gguf` replaces the transformer with a
+GGUF-quantized one, and `--low-vram` loads the text encoder in 4-bit NF4,
+keeps the transformer weights in CPU memory and streams them to the GPU layer
+by layer, and offloads the other models while they are idle. The transformer
+therefore needs CPU RAM rather than VRAM. Install the extra dependencies
+first:
+
+```bash
+python -m pip install gguf bitsandbytes
+```
+
+FLUX.1 Kontext with a Q4_K_S transformer (6.8 GB) fits comfortably:
+
+```bash
+python demo_flux_kontext.py \
+  --task text-removal \
+  --input path/to/input.png \
+  --transformer-gguf https://huggingface.co/QuantStack/FLUX.1-Kontext-dev-GGUF/blob/main/flux1-kontext-dev-Q4_K_S.gguf \
+  --low-vram
+```
+
+For Qwen Image Edit, pick the GGUF that matches the task's checkpoint. Q4_K_M
+needs about 13 GB of free CPU RAM; use Q3_K_S if RAM is short:
+
+```bash
+python demo_qwen_image_edit.py \
+  --task text-removal \
+  --input path/to/input.png \
+  --transformer-gguf https://huggingface.co/QuantStack/Qwen-Image-Edit-2509-GGUF/blob/main/Qwen-Image-Edit-2509-Q4_K_M.gguf \
+  --low-vram
+
+python demo_qwen_image_edit.py \
+  --task screentone-synthesis \
+  --input path/to/line_art.png \
+  --transformer-gguf https://huggingface.co/unsloth/Qwen-Image-Edit-2511-GGUF/blob/main/qwen-image-edit-2511-Q4_K_M.gguf \
+  --low-vram
+```
+
+Quantized results may differ from those reported in the paper.
+
 ## Dataset Reproduction
 
 The one-image demos above operate on user-provided images. This section is a

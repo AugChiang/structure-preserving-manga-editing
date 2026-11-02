@@ -36,13 +36,16 @@ from .core import apply_trajectory_correction, correction_is_active
 
 def _pad_prompt_pair(
     first_embeds: torch.Tensor,
-    first_mask: torch.Tensor,
+    first_mask: torch.Tensor | None,
     second_embeds: torch.Tensor,
-    second_mask: torch.Tensor,
+    second_mask: torch.Tensor | None,
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     target_length = max(first_embeds.shape[1], second_embeds.shape[1])
 
-    def pad(embeds: torch.Tensor, mask: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def pad(embeds: torch.Tensor, mask: torch.Tensor | None) -> tuple[torch.Tensor, torch.Tensor]:
+        # encode_prompt returns no mask when every token is valid.
+        if mask is None:
+            mask = torch.ones(embeds.shape[:2], dtype=torch.long, device=embeds.device)
         amount = target_length - embeds.shape[1]
         if amount == 0:
             return embeds, mask

@@ -38,6 +38,17 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
     parser.add_argument("--correction-steps", type=int, default=3)
     parser.add_argument("--correction-strength", type=float, default=0.01)
     parser.add_argument(
+        "--transformer-gguf",
+        help="Local path or Hugging Face URL of a GGUF-quantized transformer "
+        "that replaces the transformer of --model-id.",
+    )
+    parser.add_argument(
+        "--low-vram",
+        action="store_true",
+        help="Load the text encoder in 4-bit NF4, stream the transformer from CPU "
+        "memory, and offload the other models while they are idle.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate and print the resolved configuration without loading a model.",
@@ -72,7 +83,68 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
         "correction_steps": args.correction_steps,
         "correction_strength": args.correction_strength,
         "num_inference_steps": 28 if backend == "flux-kontext" else 40,
+        "transformer_gguf": getattr(args, "transformer_gguf", None),
+        "low_vram": getattr(args, "low_vram", False),
     }
+
+
+def load_pipeline(pipeline_class, transformer_class, text_encoder_name: str, config: dict, dtype):
+    """Load a pipeline, optionally with a GGUF transformer and low-VRAM settings."""
+    kwargs = {"torch_dtype": dtype}
+    if config["transformer_gguf"]:
+        from diffusers import GGUFQuantizationConfig
+
+        kwargs["transformer"] = transformer_class.from_single_file(
+            config["transformer_gguf"],
+            quantization_config=GGUFQuantizationConfig(compute_dtype=dtype),
+            config=config["model_id"],
+            subfolder="transformer",
+            torch_dtype=dtype,
+        )
+    if config["low_vram"]:
+        from diffusers import PipelineQuantizationConfig
+
+        kwargs["quantization_config"] = PipelineQuantizationConfig(
+            quant_backend="bitsandbytes_4bit",
+            quant_kwargs={
+                "load_in_4bit": True,
+                "bnb_4bit_quant_type": "nf4",
+                "bnb_4bit_compute_dtype": dtype,
+            },
+            components_to_quantize=[text_encoder_name],
+        )
+
+    pipeline = pipeline_class.from_pretrained(config["model_id"], **kwargs)
+    if config["low_vram"]:
+        enable_low_vram_offload(pipeline, config["device"])
+    else:
+        pipeline.to(config["device"])
+    return pipeline
+
+
+def enable_low_vram_offload(pipeline, device: str) -> None:
+    """Stream the transformer layer by layer and offload the other models when idle.
+
+    Whole-model offloading leaves too little headroom on 12 GB GPUs, so the
+    transformer weights stay in CPU memory and are prefetched leaf by leaf.
+    Weights are pinned on the fly because Windows cannot page-lock a whole
+    20B transformer at once.
+    """
+    import torch
+    from accelerate import cpu_offload_with_hook
+
+    pipeline.transformer.enable_group_offload(
+        onload_device=device,
+        offload_device="cpu",
+        offload_type="leaf_level",
+        use_stream=True,
+        low_cpu_mem_usage=True,
+    )
+    hook = None
+    for name in pipeline.model_cpu_offload_seq.split("->"):
+        component = getattr(pipeline, name, None)
+        if name != "transformer" and isinstance(component, torch.nn.Module):
+            _, hook = cpu_offload_with_hook(component, device, prev_module_hook=hook)
 
 
 def validate_input_file(input_path: Path) -> None:
@@ -106,13 +178,18 @@ def run_cli(backend: str) -> None:
     image = Image.open(input_path).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
 
     if backend == "flux-kontext":
+        from diffusers import FluxTransformer2DModel
+
         from .flux_kontext import StructurePreservingFluxKontextPipeline
 
-        pipeline = StructurePreservingFluxKontextPipeline.from_pretrained(
-            config["model_id"],
-            torch_dtype=dtype,
+        pipeline = load_pipeline(
+            StructurePreservingFluxKontextPipeline,
+            FluxTransformer2DModel,
+            "text_encoder_2",
+            config,
+            dtype,
         )
-        result = pipeline.to(device).edit(
+        result = pipeline.edit(
             image,
             config["prompt"],
             generator,
@@ -121,13 +198,18 @@ def run_cli(backend: str) -> None:
             correction_strength=config["correction_strength"],
         )
     else:
+        from diffusers import QwenImageTransformer2DModel
+
         from .qwen_image_edit import StructurePreservingQwenImageEditPipeline
 
-        pipeline = StructurePreservingQwenImageEditPipeline.from_pretrained(
-            config["model_id"],
-            torch_dtype=dtype,
+        pipeline = load_pipeline(
+            StructurePreservingQwenImageEditPipeline,
+            QwenImageTransformer2DModel,
+            "text_encoder",
+            config,
+            dtype,
         )
-        result = pipeline.to(device).edit(
+        result = pipeline.edit(
             image,
             config["prompt"],
             generator,
