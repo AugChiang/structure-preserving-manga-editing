@@ -132,7 +132,7 @@ Screentone synthesis:
 Convert the line art into a finished Japanese black and white monochrome manga image.
 ```
 
-### Running on a 12 GB GPU
+### Run Quantized Model on Consumer GPU
 
 The full-precision checkpoints need far more than 12 GB of VRAM. Two optional
 flags reduce memory use: `--transformer-gguf` replaces the transformer with a
@@ -175,7 +175,7 @@ python demo_qwen_image_edit.py \
 
 Quantized results may differ from those reported in the paper.
 
-## FLUX 3 Image Klein (experimental)
+## FLUX 3 Image Klein
 
 [FLUX 3 Image Klein](https://huggingface.co/black-forest-labs/flux-3-image-klein)
 is a 5.6B step-distilled editing model (16 steps, no guidance). It is a
@@ -208,9 +208,9 @@ The FLUX 3 Image Klein weights are released under the FLUX Kommunity License
 (non-commercial use, with a commercial-output exception for Qualifying Users).
 Accept the access conditions on the model page first.
 
-### Quantized transformers for a 12 GB GPU (RTX 4070)
+### Quantized Transformers for Consumer GPU (tested on RTX 4070)
 
-| Transformer | Size | Runs on RTX 4070 (Ada) | Notes |
+| Transformer | Size | Runs on RTX 4070 | Notes |
 | --- | --- | --- | --- |
 | BF16 (official) | 11.1 GB | with `--low-vram` only | streamed from CPU RAM |
 | [unsloth Q8_0 GGUF](https://huggingface.co/unsloth/flux-3-image-klein-GGUF) | 6.1 GB | yes | recommended default |
