@@ -41,25 +41,22 @@ Blocked by policy (see `CLAUDE.md`):
 - **Prompt upsampler.** It is a Qwen3.5-9B fine-tune, so it is left out. The
   paper uses its exact task prompts anyway.
 
-## Setting up the RTX 4070 PC (Windows 11, Miniconda)
+## On the RTX 4070 PC (Windows 11, Miniconda)
 
-Prerequisites:
+The Miniconda environment on the 4070 PC is already set up; do not recreate
+it. The FLUX 3 code needs diffusers 0.42 or newer, so check once:
+`python -c "import diffusers; print(diffusers.__version__)"`.
+`environment-flux3.yml` lists the versions tested on the development PC.
 
-- An NVIDIA driver recent enough for CUDA 12.8 (R570 or newer). Check with
-  `nvidia-smi`. You do not need to install the CUDA toolkit separately,
-  because the PyTorch wheels include it.
-- **NVIDIA Control Panel → Manage 3D settings → CUDA - Sysmem Fallback
-  Policy → Prefer No Sysmem Fallback.** By default, the Windows driver
-  silently spills into system RAM when VRAM runs out. A run that does not fit
-  in 12 GB then gets very slow instead of failing, which hides the problem.
-  Turn the fallback off while measuring memory.
+Before measuring memory, set **NVIDIA Control Panel → Manage 3D settings →
+CUDA - Sysmem Fallback Policy → Prefer No Sysmem Fallback**. By default, the
+Windows driver silently spills into system RAM when VRAM runs out. A run that
+does not fit in 12 GB then gets very slow instead of failing, which hides the
+problem.
 
-Run these in the **Anaconda Prompt (miniconda3)**. In PowerShell, run
-`conda init powershell` once first. Each command is a single line:
+With the environment active, each command is a single line:
 
 ```powershell
-conda env create -f environment-flux3.yml
-conda activate spme-flux3
 hf auth login
 python -m unittest discover -s tests
 python scripts/download_flux3_weights.py --gguf Q8_0 Q4_K_M

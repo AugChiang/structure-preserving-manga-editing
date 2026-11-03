@@ -23,8 +23,9 @@ the logic in a script under `scripts/` instead.
 
 ## Environments
 
-- `spme-flux3` (`conda env create -f environment-flux3.yml`): FLUX 3 work, diffusers 0.42.1.
-  Miniconda has no `mamba`. Use `conda`, which uses the libmamba solver.
+- FLUX 3 work needs diffusers >= 0.42. The Miniconda environment on the RTX 4070
+  PC is already set up, so do not recreate it. `environment-flux3.yml` records
+  the versions tested on the development PC.
 - `requirements.txt`: the pinned paper environment (diffusers 0.37); FLUX 3 does not run there.
 
 Tests: `python -m unittest discover -s tests` (CPU only, no weights needed).
