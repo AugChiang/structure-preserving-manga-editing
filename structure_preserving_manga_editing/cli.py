@@ -39,7 +39,7 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
         default=Path("outputs"),
         help="Output folder. Each result keeps the name of its input image.",
     )
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", help="Default to: cuda",default="cuda")
     parser.add_argument("--model-id")
     parser.add_argument("--correction-steps", help="Number of correction steps, default to: 3.", type=int, default=3)
