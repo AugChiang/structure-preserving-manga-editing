@@ -1,0 +1,29 @@
+# Test environment for the FLUX 3 Image Klein backend (demo_flux3_klein.py).
+# FLUX 3 needs diffusers >= 0.42, newer than the pinned paper environment in
+# requirements.txt, so it lives in a separate environment:
+#
+#   mamba env create -f environment-flux3.yml
+#   conda activate spme-flux3
+#
+# Targets CUDA 12.8 wheels, which support the RTX 4070 (Ada, sm_89).
+name: spme-flux3
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch==2.9.1
+      - torchvision==0.24.1
+      - diffusers==0.42.1
+      - transformers==5.22.1
+      - accelerate==1.15.0
+      - safetensors==0.8.0
+      - huggingface-hub==2.4.0
+      - gguf==0.19.0
+      - numpy==2.4.6
+      - Pillow==13.0.0
+      - protobuf==7.36.2
+      - sentencepiece==0.2.2
+      - tqdm==4.70.1

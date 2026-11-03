@@ -27,3 +27,4 @@ TASKS = {
 }
 
 FLUX_MODEL_ID = "black-forest-labs/FLUX.1-Kontext-dev"
+FLUX3_KLEIN_MODEL_ID = "black-forest-labs/flux-3-image-klein"

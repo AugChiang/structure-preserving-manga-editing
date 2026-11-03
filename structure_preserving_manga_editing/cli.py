@@ -1,4 +1,4 @@
-"""Shared command-line interface for the two one-image demos."""
+"""Shared command-line interface for the one-image demos."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 
 from PIL import Image
 
-from .tasks import FLUX_MODEL_ID, TASKS
+from .tasks import FLUX3_KLEIN_MODEL_ID, FLUX_MODEL_ID, TASKS
 
 
 def _relative_path(value: str) -> Path:
@@ -48,6 +48,14 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
         help="Load the text encoder in 4-bit NF4, stream the transformer from CPU "
         "memory, and offload the other models while they are idle.",
     )
+    if backend == "flux3-klein":
+        parser.add_argument(
+            "--prompt-embeds",
+            type=_relative_path,
+            help="Safetensors file of precomputed FLUX 3 prompt embeddings for the task "
+            "prompt and the empty prompt. Required: the Qwen3-VL text encoder is not "
+            "integrated (see flux3_klein.py).",
+        )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -62,7 +70,10 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
     output_path = args.output or Path("outputs") / f"{backend}_{args.task}.png"
     model_id = args.model_id
     if model_id is None:
-        model_id = FLUX_MODEL_ID if backend == "flux-kontext" else task.qwen_model_id
+        model_id = {
+            "flux-kontext": FLUX_MODEL_ID,
+            "flux3-klein": FLUX3_KLEIN_MODEL_ID,
+        }.get(backend, task.qwen_model_id)
 
     if input_path.is_absolute() or output_path.is_absolute():
         raise ValueError("input and output paths must be relative")
@@ -82,9 +93,10 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
         "device": args.device,
         "correction_steps": args.correction_steps,
         "correction_strength": args.correction_strength,
-        "num_inference_steps": 28 if backend == "flux-kontext" else 40,
+        "num_inference_steps": {"flux-kontext": 28, "flux3-klein": 16}.get(backend, 40),
         "transformer_gguf": getattr(args, "transformer_gguf", None),
         "low_vram": getattr(args, "low_vram", False),
+        "prompt_embeds": str(args.prompt_embeds) if getattr(args, "prompt_embeds", None) else None,
     }
 
 
@@ -177,7 +189,35 @@ def run_cli(backend: str) -> None:
     generator = torch.Generator(device=device).manual_seed(config["seed"])
     image = Image.open(input_path).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
 
-    if backend == "flux-kontext":
+    if backend == "flux3-klein":
+        from .flux3_klein import PrecomputedPromptEncoder, StructurePreservingFlux3KleinPipeline
+
+        # TODO(qwen-policy): fall back to the official Qwen3-VL-4B encoder here
+        # (Qwen3VLPromptEncoderPlaceholder) once the policy allows it.
+        if config["prompt_embeds"] is None:
+            raise ValueError(
+                "flux3-klein needs --prompt-embeds: the Qwen3-VL-4B text encoder is "
+                "excluded by project policy and is not downloaded"
+            )
+        pipeline = StructurePreservingFlux3KleinPipeline.from_pretrained(
+            config["model_id"],
+            PrecomputedPromptEncoder(config["prompt_embeds"]),
+            torch_dtype=dtype,
+            transformer_gguf=config["transformer_gguf"],
+        )
+        if config["low_vram"]:
+            pipeline.enable_low_vram(device)
+        else:
+            pipeline.to(device)
+        result = pipeline.edit(
+            image,
+            config["prompt"],
+            generator,
+            num_inference_steps=config["num_inference_steps"],
+            correction_steps=config["correction_steps"],
+            correction_strength=config["correction_strength"],
+        )
+    elif backend == "flux-kontext":
         from diffusers import FluxTransformer2DModel
 
         from .flux_kontext import StructurePreservingFluxKontextPipeline

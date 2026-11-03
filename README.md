@@ -171,6 +171,64 @@ python demo_qwen_image_edit.py \
 
 Quantized results may differ from those reported in the paper.
 
+## FLUX 3 Image Klein (experimental)
+
+[FLUX 3 Image Klein](https://huggingface.co/black-forest-labs/flux-3-image-klein)
+is a 5.6B step-distilled editing model (16 steps, no guidance). It is a
+flow-map model: each transformer call also receives the time the step jumps
+to. During the correction steps, the empty-prompt branch jumps straight to the
+terminal time, which is the one-step reconstruction Algorithm 1 uses. The edit
+branch keeps the regular next-step target.
+
+**Text encoder not included.** The official text encoder is
+Qwen3-VL-4B-Instruct, and the recommended prompt upsampler is a Qwen3.5-9B
+fine-tune. This project does not download or load Qwen-series models, so
+`Qwen3VLPromptEncoderPlaceholder` in
+`structure_preserving_manga_editing/flux3_klein.py` raises
+`NotImplementedError` and holds `TODO(qwen-policy)` notes. Only the BFL
+transformer and VAE are fetched. A real edit therefore needs prompt embeddings
+computed elsewhere and passed with `--prompt-embeds` (write the file with
+`save_prompt_embeddings`). The file must contain both the task prompt and the
+empty prompt `""`. Without it, the demo stops before loading any model.
+
+FLUX 3 needs a newer Diffusers than the pinned paper environment, so it uses
+its own conda environment:
+
+```bash
+mamba env create -f environment-flux3.yml
+conda activate spme-flux3
+```
+
+The FLUX 3 Image Klein weights are released under the FLUX Kommunity License
+(non-commercial use, with a commercial-output exception for Qualifying Users).
+Accept the access conditions on the model page first.
+
+### Quantized transformers for a 12 GB GPU (RTX 4070)
+
+| Transformer | Size | Runs on RTX 4070 (Ada) | Notes |
+| --- | --- | --- | --- |
+| BF16 (official) | 11.1 GB | with `--low-vram` only | streamed from CPU RAM |
+| [unsloth Q8_0 GGUF](https://huggingface.co/unsloth/flux-3-image-klein-GGUF) | 6.1 GB | yes | recommended default |
+| [unsloth Q4_K_M GGUF](https://huggingface.co/unsloth/flux-3-image-klein-GGUF) | 3.7 GB | yes | more headroom, lower quality |
+| BFL `variants/fp8r` | 6.3 GB | hardware yes | BFL's own format; no Diffusers loader |
+| BFL `variants/nvfp4` | 5.3 GB | no | needs a Blackwell GPU |
+
+Other GGUF builds exist (for example `leejet/flux-3-image-klein-GGUF`), as do
+Nunchaku SVDQuant and ComfyUI INT8 builds. Only the unsloth GGUFs were tested
+with this code.
+
+```bash
+python demo_flux3_klein.py \
+  --task text-removal \
+  --input path/to/input.png \
+  --prompt-embeds path/to/flux3_prompt_embeds.safetensors \
+  --transformer-gguf https://huggingface.co/unsloth/flux-3-image-klein-GGUF/blob/main/flux-3-image-klein-Q8_0.gguf
+```
+
+Add `--low-vram` to stream the transformer from CPU memory instead. The
+default of 3 correction steps comes from the 28-step FLUX.1 Kontext setting.
+It has not been tuned for the 16-step FLUX 3 schedule.
+
 ## Dataset Reproduction
 
 The one-image demos above operate on user-provided images. This section is a
@@ -277,6 +335,10 @@ python demo_flux_kontext.py --task screentone-synthesis --input path/to/input.pn
 python demo_qwen_image_edit.py --task text-removal --input path/to/input.png --dry-run
 python demo_qwen_image_edit.py --task screentone-synthesis --input path/to/input.png --dry-run
 ```
+
+The FLUX 3 tests (`tests/test_flux3_klein.py`) need the `spme-flux3`
+environment. They run a tiny, randomly initialized FLUX 3 transformer and VAE
+on the CPU, so no weights are downloaded.
 
 ## Citation
 

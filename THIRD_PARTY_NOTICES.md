@@ -8,7 +8,8 @@ No model weights, Manga109-s images, or font binaries are distributed here.
 ## Hugging Face Diffusers
 
 The model-specific sampler integrations in
-`structure_preserving_manga_editing/flux_kontext.py` and
+`structure_preserving_manga_editing/flux_kontext.py`,
+`structure_preserving_manga_editing/flux3_klein.py`, and
 `structure_preserving_manga_editing/qwen_image_edit.py` are modified from the
 corresponding Hugging Face Diffusers pipelines.
 
@@ -29,6 +30,13 @@ The following checkpoints are downloaded separately at runtime:
 - `black-forest-labs/FLUX.1-Kontext-dev`
   - Model card: <https://huggingface.co/black-forest-labs/FLUX.1-Kontext-dev>
   - Terms: FLUX.1 [dev] Non-Commercial License
+- `black-forest-labs/flux-3-image-klein` (transformer and VAE only; its
+  bundled Qwen3-VL-4B-Instruct text encoder is not downloaded)
+  - Model card: <https://huggingface.co/black-forest-labs/flux-3-image-klein>
+  - Terms: FLUX Kommunity License
+- `unsloth/flux-3-image-klein-GGUF` (optional quantized transformer)
+  - Model card: <https://huggingface.co/unsloth/flux-3-image-klein-GGUF>
+  - Terms: those of the FLUX 3 Image Klein weights it is derived from
 - `Qwen/Qwen-Image-Edit-2509`
   - Model card: <https://huggingface.co/Qwen/Qwen-Image-Edit-2509>
   - License: Apache License 2.0

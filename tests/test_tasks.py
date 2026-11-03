@@ -53,6 +53,23 @@ class TaskTests(unittest.TestCase):
         self.assertEqual(config["num_inference_steps"], 28)
         self.assertEqual(config["output"], "outputs/flux-kontext_text-removal.png")
 
+    def test_flux3_klein_defaults(self) -> None:
+        config = resolve_config("flux3-klein", arguments("text-removal"))
+        self.assertEqual(config["model_id"], "black-forest-labs/flux-3-image-klein")
+        self.assertEqual(config["num_inference_steps"], 16)
+        self.assertEqual(config["output"], "outputs/flux3-klein_text-removal.png")
+        self.assertIsNone(config["prompt_embeds"])
+
+    def test_prompt_embeds_option_is_flux3_only(self) -> None:
+        args = build_parser("flux3-klein").parse_args(
+            ["--task", "text-removal", "--input", "input.png", "--prompt-embeds", "embeds.safetensors"]
+        )
+        self.assertEqual(resolve_config("flux3-klein", args)["prompt_embeds"], "embeds.safetensors")
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            build_parser("flux-kontext").parse_args(
+                ["--task", "text-removal", "--input", "input.png", "--prompt-embeds", "embeds.safetensors"]
+            )
+
     def test_low_vram_options(self) -> None:
         default = resolve_config("qwen-image-edit", arguments("text-removal"))
         self.assertIsNone(default["transformer_gguf"])
