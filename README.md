@@ -57,11 +57,15 @@ Its model weights are subject to the FLUX.1 [dev] Non-Commercial License.
 Qwen Image Edit 2509 and 2511 are provided under Apache License 2.0. Always
 review the current model cards and terms before use.
 
-## One-image Demo
+## Demo
 
 Run all commands from the repository root. Input and output paths must be
-relative to this directory. Inputs are converted to RGB and resized to
-1024-by-1024 pixels.
+relative to this directory. `--input` accepts a single image or a folder, in
+which case every `.png`, `.jpg`, `.jpeg`, `.webp` and `.bmp` image directly
+inside it is edited with one model load. Inputs are converted to RGB and
+processed at about one megapixel with their aspect ratio preserved; a square
+input is processed at 1024-by-1024 pixels as in the paper. Each result is
+resized back to the size of its input.
 
 Text removal with FLUX.1 Kontext:
 
@@ -95,12 +99,12 @@ python demo_qwen_image_edit.py \
   --input path/to/line_art.png
 ```
 
-Default outputs are written under `outputs/`. The task selects the exact
-experimental prompt, Qwen checkpoint, and number of inference steps. Both
-demos also accept:
+Results are written to the `outputs/` folder under the same file names as
+their inputs. The task selects the exact experimental prompt, Qwen checkpoint,
+and number of inference steps. Both demos also accept:
 
 ```text
---output RELATIVE_PATH
+--output RELATIVE_FOLDER
 --seed INTEGER
 --device DEVICE
 --model-id MODEL_ID
@@ -180,16 +184,11 @@ to. During the correction steps, the empty-prompt branch jumps straight to the
 terminal time, which is the one-step reconstruction Algorithm 1 uses. The edit
 branch keeps the regular next-step target.
 
-**Text encoder not included.** The official text encoder is
-Qwen3-VL-4B-Instruct, and the recommended prompt upsampler is a Qwen3.5-9B
-fine-tune. This project does not download or load Qwen-series models, so
-`Qwen3VLPromptEncoderPlaceholder` in
-`structure_preserving_manga_editing/flux3_klein.py` raises
-`NotImplementedError` and holds `TODO(qwen-policy)` notes. Only the BFL
-transformer and VAE are fetched. A real edit therefore needs prompt embeddings
-computed elsewhere and passed with `--prompt-embeds` (write the file with
-`save_prompt_embeddings`). The file must contain both the task prompt and the
-empty prompt `""`. Without it, the demo stops before loading any model.
+The pipeline loads the official text encoder, Qwen3-VL-4B-Instruct
+(`text_encoder/`, 8.9 GB), together with the transformer and the VAE. Each
+batch encodes its task prompt and the empty prompt `""` once. The recommended
+prompt upsampler, a Qwen3.5-9B fine-tune, is not integrated; the paper's exact
+task prompts are used without upsampling.
 
 FLUX 3 needs a newer Diffusers than the pinned paper environment, so it uses
 its own conda environment:
@@ -200,8 +199,8 @@ conda activate spme-flux3
 python scripts/download_flux3_weights.py
 ```
 
-The download script fetches only the BFL transformer, the VAE and the Q8_0
-GGUF, never the Qwen text encoder. It and the commands below also work on
+The download script fetches the BFL text encoder, transformer and VAE and the
+Q8_0 GGUF. It and the commands below also work on
 Windows 11 (Anaconda Prompt). In PowerShell, put each command on one line
 instead of using `\` line continuations.
 
@@ -226,18 +225,36 @@ with this code.
 ```bash
 python demo_flux3_klein.py \
   --task text-removal \
-  --input path/to/input.png \
-  --prompt-embeds path/to/flux3_prompt_embeds.safetensors \
-  --transformer-gguf https://huggingface.co/unsloth/flux-3-image-klein-GGUF/blob/main/flux-3-image-klein-Q8_0.gguf
+  --input path/to/folder \
+  --transformer-gguf https://huggingface.co/unsloth/flux-3-image-klein-GGUF/blob/main/flux-3-image-klein-Q8_0.gguf \
+  --low-vram
 ```
 
-Add `--low-vram` to stream the transformer from CPU memory instead. The
-default of 3 correction steps comes from the 28-step FLUX.1 Kontext setting.
-It has not been tuned for the 16-step FLUX 3 schedule.
+`--low-vram` streams the text encoder and the transformer from CPU memory,
+which needs about 16 GB of free system RAM with the Q8_0 transformer. Without
+it, all models sit on the GPU, which does not fit in 12 GB. On an RTX 4070
+12 GB under Windows 11, this command edited a 900-by-1300 and a 1024-by-1024
+page in about 130 s in total, including model loading, with either the Q8_0
+or the Q4_K_M transformer. The peak allocation was 4.1 GiB and the CUDA cache
+peaked at 7.3 GiB. Like the other backends, FLUX 3 processes each
+input at about one megapixel and resizes the result back to the input size.
+
+For text removal, FLUX 3 uses a more explicit prompt than the paper's
+(`flux3_prompt` in `tasks.py`). With the short prompt "Remove text. Keep
+everything else unchanged.", it guesses what counts as text and removed only
+some lettering, or whole balloons, depending on the seed. The other backends
+keep the paper's prompts. Results still vary with `--seed`: on the test pages
+the explicit prompt removed all lettering in every run, but sometimes also
+erased hatching or a balloon, so try a couple of seeds.
+
+The correction defaults (3 steps, strength 0.01) are kept from FLUX.1 Kontext.
+On the 16-step FLUX 3 schedule they have no visible effect. Strength 0.1
+cancels the edit, and values in between change which elements get edited
+rather than keeping the structure.
 
 ## Dataset Reproduction
 
-The one-image demos above operate on user-provided images. This section is a
+The demos above operate on user-provided images. This section is a
 separate, optional procedure for reconstructing the two experimental datasets
 from Manga109-s. Dataset preparation is not required to run a demo.
 

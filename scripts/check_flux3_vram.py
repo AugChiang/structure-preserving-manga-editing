@@ -1,11 +1,10 @@
 """Check that the FLUX 3 Image Klein pipeline fits in GPU memory.
 
-Runs one 1024x1024 edit (16 steps, 3 corrected) with *random* prompt
-embeddings, because the Qwen3-VL text encoder is intentionally not integrated.
-The output image is therefore meaningless; this only verifies loading, the
-quantized transformer, the correction loop, speed and peak VRAM.
+Runs one 1024x1024 text-removal edit (16 steps, 3 corrected) on a blank page
+with the full pipeline (Qwen3-VL text encoder, transformer and VAE) and
+reports load time, edit time and peak VRAM.
 
-Examples (from the repository root, in the spme-flux3 environment):
+Examples (from the repository root):
 
     python scripts/check_flux3_vram.py --variant q8
     python scripts/check_flux3_vram.py --variant bf16 --low-vram
@@ -28,20 +27,10 @@ from structure_preserving_manga_editing.flux3_klein import (  # noqa: E402
     FLUX3_KLEIN_GGUF_Q4,
     FLUX3_KLEIN_GGUF_Q8,
     FLUX3_KLEIN_MODEL_ID,
-    FLUX3_TEXT_EMBED_DIM,
-    PromptEmbeddings,
     StructurePreservingFlux3KleinPipeline,
 )
 
 TRANSFORMERS = {"q8": FLUX3_KLEIN_GGUF_Q8, "q4": FLUX3_KLEIN_GGUF_Q4, "bf16": None}
-
-
-class RandomPromptEncoder:
-    """Stand-in for the excluded Qwen3-VL encoder: random 80-token embeddings."""
-
-    def encode(self, prompt: str) -> PromptEmbeddings:
-        generator = torch.Generator().manual_seed(len(prompt))
-        return PromptEmbeddings(torch.randn(1, 80, FLUX3_TEXT_EMBED_DIM, generator=generator) * 0.1)
 
 
 def main() -> None:
@@ -59,7 +48,6 @@ def main() -> None:
     start = time.time()
     pipeline = StructurePreservingFlux3KleinPipeline.from_pretrained(
         FLUX3_KLEIN_MODEL_ID,
-        RandomPromptEncoder(),
         torch_dtype=torch.bfloat16,
         transformer_gguf=TRANSFORMERS[args.variant],
     )

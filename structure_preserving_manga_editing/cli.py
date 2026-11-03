@@ -1,4 +1,4 @@
-"""Shared command-line interface for the one-image demos."""
+"""Shared command-line interface for the demos."""
 
 from __future__ import annotations
 
@@ -11,6 +11,8 @@ from PIL import Image
 
 from .tasks import FLUX3_KLEIN_MODEL_ID, FLUX_MODEL_ID, TASKS
 
+IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
+
 
 def _relative_path(value: str) -> Path:
     path = Path(value)
@@ -21,7 +23,7 @@ def _relative_path(value: str) -> Path:
 
 def build_parser(backend: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description=f"Run the proposed one-image {backend} demo.",
+        description=f"Run the proposed {backend} demo on an image or a folder of images.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--task", required=True, choices=sorted(TASKS))
@@ -29,14 +31,19 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
         "--input",
         required=True,
         type=_relative_path,
-        help="Input image path relative to the repository root.",
+        help="Input image, or folder of images, relative to the repository root.",
     )
-    parser.add_argument("--output", type=_relative_path)
+    parser.add_argument(
+        "--output",
+        type=_relative_path,
+        default=Path("outputs"),
+        help="Output folder. Each result keeps the name of its input image.",
+    )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--device", default="cuda")
+    parser.add_argument("--device", help="Default to: cuda",default="cuda")
     parser.add_argument("--model-id")
-    parser.add_argument("--correction-steps", type=int, default=3)
-    parser.add_argument("--correction-strength", type=float, default=0.01)
+    parser.add_argument("--correction-steps", help="Number of correction steps, default to: 3.", type=int, default=3)
+    parser.add_argument("--correction-strength", help="Correction strength, default to: 0.01.", type=float, default=0.01)
     parser.add_argument(
         "--transformer-gguf",
         help="Local path or Hugging Face URL of a GGUF-quantized transformer "
@@ -45,17 +52,10 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
     parser.add_argument(
         "--low-vram",
         action="store_true",
-        help="Load the text encoder in 4-bit NF4, stream the transformer from CPU "
-        "memory, and offload the other models while they are idle.",
+        help="Stream the transformer from CPU memory. FLUX 3 also streams its text "
+        "encoder; the other backends load it in 4-bit NF4 and offload the other "
+        "models while they are idle.",
     )
-    if backend == "flux3-klein":
-        parser.add_argument(
-            "--prompt-embeds",
-            type=_relative_path,
-            help="Safetensors file of precomputed FLUX 3 prompt embeddings for the task "
-            "prompt and the empty prompt. Required: the Qwen3-VL text encoder is not "
-            "integrated (see flux3_klein.py).",
-        )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -67,7 +67,7 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
 def resolve_config(backend: str, args: argparse.Namespace) -> dict:
     task = TASKS[args.task]
     input_path = args.input
-    output_path = args.output or Path("outputs") / f"{backend}_{args.task}.png"
+    output_path = args.output or Path("outputs")
     model_id = args.model_id
     if model_id is None:
         model_id = {
@@ -81,11 +81,14 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
         raise ValueError("correction_steps must be non-negative")
     if not 0.0 <= args.correction_strength <= 1.0:
         raise ValueError("correction_strength must be between 0 and 1")
+    prompt = task.prompt
+    if backend == "flux3-klein" and task.flux3_prompt:
+        prompt = task.flux3_prompt
 
     return {
         "backend": backend,
         "task": args.task,
-        "prompt": task.prompt,
+        "prompt": prompt,
         "input": str(input_path),
         "output": str(output_path),
         "model_id": model_id,
@@ -96,7 +99,6 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
         "num_inference_steps": {"flux-kontext": 28, "flux3-klein": 16}.get(backend, 40),
         "transformer_gguf": getattr(args, "transformer_gguf", None),
         "low_vram": getattr(args, "low_vram", False),
-        "prompt_embeds": str(args.prompt_embeds) if getattr(args, "prompt_embeds", None) else None,
     }
 
 
@@ -159,19 +161,35 @@ def enable_low_vram_offload(pipeline, device: str) -> None:
             _, hook = cpu_offload_with_hook(component, device, prev_module_hook=hook)
 
 
-def validate_input_file(input_path: Path) -> None:
-    """Reject missing demo inputs before loading large model checkpoints."""
-    if not input_path.is_file():
-        raise FileNotFoundError(f"input image not found: {input_path}")
+def collect_jobs(input_path: Path, output_dir: Path) -> list[tuple[Path, Path]]:
+    """Pair each input image with its output path before loading large model checkpoints."""
+    if input_path.is_dir():
+        images = sorted(
+            path
+            for path in input_path.iterdir()
+            if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES
+        )
+        if not images:
+            raise FileNotFoundError(f"no images found in folder: {input_path}")
+    elif input_path.is_file():
+        images = [input_path]
+    else:
+        raise FileNotFoundError(f"input image or folder not found: {input_path}")
+
+    jobs = [(image, output_dir / image.name) for image in images]
+    for image, output in jobs:
+        if output.resolve() == image.resolve():
+            raise ValueError(f"output would overwrite its input: {image}")
+    return jobs
 
 
 def run_cli(backend: str) -> None:
     args = build_parser(backend).parse_args()
     config = resolve_config(backend, args)
-    input_path = Path(config["input"])
-    validate_input_file(input_path)
+    jobs = collect_jobs(Path(config["input"]), Path(config["output"]))
 
     if args.dry_run:
+        config["jobs"] = [[str(image), str(output)] for image, output in jobs]
         print(json.dumps(config, indent=2, sort_keys=True))
         return
 
@@ -186,22 +204,12 @@ def run_cli(backend: str) -> None:
 
     device = config["device"]
     dtype = torch.bfloat16 if device.startswith("cuda") else torch.float32
-    generator = torch.Generator(device=device).manual_seed(config["seed"])
-    image = Image.open(input_path).convert("RGB").resize((1024, 1024), Image.Resampling.LANCZOS)
 
     if backend == "flux3-klein":
-        from .flux3_klein import PrecomputedPromptEncoder, StructurePreservingFlux3KleinPipeline
+        from .flux3_klein import StructurePreservingFlux3KleinPipeline
 
-        # TODO(qwen-policy): fall back to the official Qwen3-VL-4B encoder here
-        # (Qwen3VLPromptEncoderPlaceholder) once the policy allows it.
-        if config["prompt_embeds"] is None:
-            raise ValueError(
-                "flux3-klein needs --prompt-embeds: the Qwen3-VL-4B text encoder is "
-                "excluded by project policy and is not downloaded"
-            )
         pipeline = StructurePreservingFlux3KleinPipeline.from_pretrained(
             config["model_id"],
-            PrecomputedPromptEncoder(config["prompt_embeds"]),
             torch_dtype=dtype,
             transformer_gguf=config["transformer_gguf"],
         )
@@ -209,14 +217,6 @@ def run_cli(backend: str) -> None:
             pipeline.enable_low_vram(device)
         else:
             pipeline.to(device)
-        result = pipeline.edit(
-            image,
-            config["prompt"],
-            generator,
-            num_inference_steps=config["num_inference_steps"],
-            correction_steps=config["correction_steps"],
-            correction_strength=config["correction_strength"],
-        )
     elif backend == "flux-kontext":
         from diffusers import FluxTransformer2DModel
 
@@ -228,14 +228,6 @@ def run_cli(backend: str) -> None:
             "text_encoder_2",
             config,
             dtype,
-        )
-        result = pipeline.edit(
-            image,
-            config["prompt"],
-            generator,
-            num_inference_steps=config["num_inference_steps"],
-            correction_steps=config["correction_steps"],
-            correction_strength=config["correction_strength"],
         )
     else:
         from diffusers import QwenImageTransformer2DModel
@@ -249,16 +241,32 @@ def run_cli(backend: str) -> None:
             config,
             dtype,
         )
+
+    for index, (input_path, output_path) in enumerate(jobs, start=1):
+        print(f"[{index}/{len(jobs)}] {input_path}")
+        image = Image.open(input_path).convert("RGB")
+        # Reseed per image so that each result does not depend on the folder contents.
+        generator = torch.Generator(device=device).manual_seed(config["seed"])
+        model_input = image
+        if backend == "flux3-klein":
+            # The FLUX 3 pipeline encodes images at their given size, so scale
+            # to about one megapixel here as the other pipelines do internally.
+            aspect_ratio = image.width / image.height
+            width = round((1024 * 1024 * aspect_ratio) ** 0.5 / 16) * 16
+            height = round(width / aspect_ratio / 16) * 16
+            model_input = image.resize((width, height), Image.Resampling.LANCZOS)
         result = pipeline.edit(
-            image,
+            model_input,
             config["prompt"],
             generator,
             num_inference_steps=config["num_inference_steps"],
             correction_steps=config["correction_steps"],
             correction_strength=config["correction_strength"],
         )
+        # The model runs near one megapixel; restore the input resolution.
+        if result.size != image.size:
+            result = result.resize(image.size, Image.Resampling.LANCZOS)
 
-    output_path = Path(config["output"])
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    result.save(output_path)
-    print(f"Saved result to {output_path}")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        result.save(output_path)
+        print(f"Saved result to {output_path}")

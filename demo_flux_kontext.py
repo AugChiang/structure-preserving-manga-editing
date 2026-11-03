@@ -1,4 +1,4 @@
-"""Run a one-image FLUX.1 Kontext demo."""
+"""Run the FLUX.1 Kontext demo on an image or a folder of images."""
 
 from structure_preserving_manga_editing.cli import run_cli
 

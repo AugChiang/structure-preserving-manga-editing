@@ -1,8 +1,8 @@
-"""Download the FLUX 3 Image Klein weights this project uses, WITHOUT the Qwen parts.
+"""Download the FLUX 3 Image Klein weights this project uses.
 
-Fetches only BFL's transformer and VAE (no `text_encoder/*`, which is
-Qwen3-VL-4B-Instruct) and the unsloth GGUF transformer(s). The prompt
-upsampler repository (Qwen3.5-9B) is never touched. See CLAUDE.md.
+Fetches BFL's text encoder (Qwen3-VL-4B-Instruct, `text_encoder/`, 8.9 GB),
+transformer and VAE, and the unsloth GGUF transformer(s). The prompt upsampler
+(Qwen3.5-9B) is not used and never fetched.
 
 Works the same on Windows (PowerShell / Anaconda Prompt) and Linux:
 
@@ -19,8 +19,7 @@ from huggingface_hub import hf_hub_download, snapshot_download
 
 MODEL_ID = "black-forest-labs/flux-3-image-klein"
 GGUF_REPO = "unsloth/flux-3-image-klein-GGUF"
-# Never add "text_encoder/*" here: it is a Qwen model (project policy).
-BASE_PATTERNS = ["vae/*", "transformer/config.json", "config.json", "LICENSE.md", "NOTICE.md", "README.md"]
+BASE_PATTERNS = ["text_encoder/*", "vae/*", "transformer/config.json", "config.json", "LICENSE.md", "NOTICE.md", "README.md"]
 
 
 def main() -> None:
@@ -36,7 +35,7 @@ def main() -> None:
     patterns = list(BASE_PATTERNS)
     if not args.no_bf16:
         patterns.append("transformer/*")
-    path = snapshot_download(MODEL_ID, allow_patterns=patterns, ignore_patterns=["text_encoder/*"])
+    path = snapshot_download(MODEL_ID, allow_patterns=patterns)
     print(f"{MODEL_ID}: {path}")
     for level in args.gguf:
         print(hf_hub_download(GGUF_REPO, f"flux-3-image-klein-{level}.gguf"))

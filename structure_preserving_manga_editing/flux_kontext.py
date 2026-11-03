@@ -24,6 +24,7 @@ import numpy as np
 import torch
 from diffusers import FluxKontextPipeline
 from diffusers.pipelines.flux.pipeline_flux_kontext import (
+    PREFERRED_KONTEXT_RESOLUTIONS,
     calculate_shift,
     retrieve_timesteps,
 )
@@ -50,7 +51,13 @@ class StructurePreservingFluxKontextPipeline(FluxKontextPipeline):
         if not 0.0 <= correction_strength <= 1.0:
             raise ValueError("correction_strength must be between 0 and 1")
 
-        height = width = 1024
+        # Use the preferred Kontext resolution closest to the input aspect
+        # ratio. A square input is processed at 1024 by 1024 pixels as in the
+        # paper.
+        aspect_ratio = input_image.width / input_image.height
+        _, width, height = min(
+            (abs(aspect_ratio - w / h), w, h) for w, h in PREFERRED_KONTEXT_RESOLUTIONS
+        )
         device = self._execution_device
         self._guidance_scale = guidance_scale
         self._joint_attention_kwargs = {}

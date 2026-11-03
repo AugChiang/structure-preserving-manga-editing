@@ -10,7 +10,7 @@ from pathlib import Path
 from structure_preserving_manga_editing.cli import (
     build_parser,
     resolve_config,
-    validate_input_file,
+    collect_jobs,
 )
 from structure_preserving_manga_editing.tasks import TASKS
 
@@ -51,24 +51,24 @@ class TaskTests(unittest.TestCase):
         config = resolve_config("flux-kontext", arguments("text-removal"))
         self.assertEqual(config["model_id"], "black-forest-labs/FLUX.1-Kontext-dev")
         self.assertEqual(config["num_inference_steps"], 28)
-        self.assertEqual(config["output"], "outputs/flux-kontext_text-removal.png")
+        self.assertEqual(config["output"], "outputs")
 
     def test_flux3_klein_defaults(self) -> None:
         config = resolve_config("flux3-klein", arguments("text-removal"))
         self.assertEqual(config["model_id"], "black-forest-labs/flux-3-image-klein")
         self.assertEqual(config["num_inference_steps"], 16)
-        self.assertEqual(config["output"], "outputs/flux3-klein_text-removal.png")
-        self.assertIsNone(config["prompt_embeds"])
+        self.assertEqual(config["output"], "outputs")
 
-    def test_prompt_embeds_option_is_flux3_only(self) -> None:
-        args = build_parser("flux3-klein").parse_args(
-            ["--task", "text-removal", "--input", "input.png", "--prompt-embeds", "embeds.safetensors"]
+    def test_only_flux3_uses_its_own_prompt(self) -> None:
+        task = TASKS["text-removal"]
+        for backend in ("flux-kontext", "qwen-image-edit"):
+            self.assertEqual(resolve_config(backend, arguments("text-removal"))["prompt"], task.prompt)
+        self.assertEqual(
+            resolve_config("flux3-klein", arguments("text-removal"))["prompt"], task.flux3_prompt
         )
-        self.assertEqual(resolve_config("flux3-klein", args)["prompt_embeds"], "embeds.safetensors")
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
-            build_parser("flux-kontext").parse_args(
-                ["--task", "text-removal", "--input", "input.png", "--prompt-embeds", "embeds.safetensors"]
-            )
+        # Tasks without a FLUX 3 prompt fall back to the paper's prompt.
+        tone = resolve_config("flux3-klein", arguments("screentone-synthesis"))
+        self.assertEqual(tone["prompt"], TASKS["screentone-synthesis"].prompt)
 
     def test_low_vram_options(self) -> None:
         default = resolve_config("qwen-image-edit", arguments("text-removal"))
@@ -111,13 +111,42 @@ class TaskTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory) / "missing.png"
             with self.assertRaises(FileNotFoundError):
-                validate_input_file(missing)
+                collect_jobs(missing, Path("outputs"))
 
-    def test_existing_input_file_is_accepted(self) -> None:
+    def test_existing_input_file_keeps_its_name(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "input.png"
             image.touch()
-            validate_input_file(image)
+            self.assertEqual(
+                collect_jobs(image, Path("outputs")),
+                [(image, Path("outputs") / "input.png")],
+            )
+
+    def test_folder_input_collects_sorted_images(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory)
+            for name in ("b.jpg", "a.PNG", "notes.txt"):
+                (folder / name).touch()
+            (folder / "nested").mkdir()
+            self.assertEqual(
+                collect_jobs(folder, Path("outputs")),
+                [
+                    (folder / "a.PNG", Path("outputs") / "a.PNG"),
+                    (folder / "b.jpg", Path("outputs") / "b.jpg"),
+                ],
+            )
+
+    def test_folder_without_images_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(FileNotFoundError):
+                collect_jobs(Path(directory), Path("outputs"))
+
+    def test_output_cannot_overwrite_input(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            image = Path(directory) / "input.png"
+            image.touch()
+            with self.assertRaises(ValueError):
+                collect_jobs(image, Path(directory))
 
 
 if __name__ == "__main__":

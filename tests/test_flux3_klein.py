@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 from unittest import mock
 
 import numpy as np
@@ -12,16 +10,14 @@ from PIL import Image
 from structure_preserving_manga_editing import flux3_klein
 from structure_preserving_manga_editing.flux3_klein import (
     FLUX3_TEXT_EMBED_DIM,
-    PrecomputedPromptEncoder,
     PromptEmbeddings,
-    Qwen3VLPromptEncoderPlaceholder,
+    Qwen3VLPromptEncoder,
     StructurePreservingFlux3KleinPipeline,
     flow_map_targets,
     pack_tokens,
     patchify_latents,
     prepare_image_ids,
     prepare_text_ids,
-    save_prompt_embeddings,
     unpack_tokens,
     unpatchify_latents,
 )
@@ -98,21 +94,15 @@ class PromptEncoderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             PromptEmbeddings(torch.zeros(80, FLUX3_TEXT_EMBED_DIM))
 
-    def test_qwen_placeholder_is_not_implemented(self) -> None:
-        with self.assertRaises(NotImplementedError):
-            Qwen3VLPromptEncoderPlaceholder()
-
-    def test_precomputed_round_trip(self) -> None:
-        table = {"Remove text.": embeddings(80, 1), "": embeddings(80, 2)}
-        # Windows may keep the memory-mapped file open; do not fail on cleanup.
-        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
-            path = Path(directory) / "embeds.safetensors"
-            save_prompt_embeddings(path, table)
-            encoder = PrecomputedPromptEncoder(path)
-        self.assertEqual(sorted(encoder.prompts), ["", "Remove text."])
-        torch.testing.assert_close(encoder.encode("").embeds, table[""])
-        with self.assertRaises(KeyError):
-            encoder.encode("missing")
+    def test_qwen_encoder_caches_each_prompt(self) -> None:
+        encoder = Qwen3VLPromptEncoder(text_encoder=None, processor=None)
+        target = "diffusers.modular_pipelines.flux3.encoders.Flux3TextEncoderStep._get_qwen3_vl_prompt_embeds"
+        with mock.patch(target, return_value=embeddings(80, 1)) as encode:
+            first = encoder.encode("Remove text.")
+            second = encoder.encode("Remove text.")
+            encoder.encode("")
+        self.assertIs(first, second)
+        self.assertEqual([c.args[2] for c in encode.call_args_list], ["Remove text.", ""])
 
 
 class TinyPipelineTests(unittest.TestCase):

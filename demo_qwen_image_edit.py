@@ -1,4 +1,4 @@
-"""Run a one-image Qwen Image Edit demo."""
+"""Run the Qwen Image Edit demo on an image or a folder of images."""
 
 from structure_preserving_manga_editing.cli import run_cli
 

@@ -1,13 +1,16 @@
 # Project notes for Claude
 
-## Hard rule: no Qwen or other Chinese-origin models
+## Hard rule: Qwen and other Chinese-origin models only on the RTX 4070 PC
 
-Do NOT download, load, or add automatic downloads of any Qwen-series model or
-any other model from China. When a pipeline needs one, leave a placeholder and
-`TODO(qwen-policy)` comments instead. This applies to the FLUX 3 Image Klein
-text encoder (Qwen3-VL-4B-Instruct, in the repo's `text_encoder/` folder) and
-its prompt upsampler (`flux-3-image-klein-pup`, Qwen3.5-9B). Download
-FLUX 3 weights with allow-patterns that exclude `text_encoder/*`.
+The FLUX 3 Image Klein pipeline loads its official text encoder,
+Qwen3-VL-4B-Instruct (the repo's `text_encoder/` folder), as part of the
+pipeline. The RTX 4070 PC is allowed to download and run it.
+
+On any other machine, do NOT download, load, or add automatic downloads of
+any Qwen-series model or any other model from China. There, do not run the
+FLUX 3 demo, `scripts/download_flux3_weights.py` or
+`scripts/check_flux3_vram.py`; CPU unit tests are fine. The prompt upsampler
+(`flux-3-image-klein-pup`, Qwen3.5-9B) is not used anywhere.
 
 The pre-existing Qwen Image Edit backend (`qwen_image_edit.py`,
 `demo_qwen_image_edit.py`) is the paper's original code. Leave it in place,

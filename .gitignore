@@ -9,3 +9,10 @@ __pycache__/
 *.zip
 .env
 test-img
+
+# AI
+AGENTS.md
+GEMINI.md
+
+.claude
+.gemini

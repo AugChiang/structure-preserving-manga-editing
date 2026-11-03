@@ -81,15 +81,19 @@ class StructurePreservingQwenImageEditPipeline(QwenImageEditPlusPipeline):
         if not 0.0 <= correction_strength <= 1.0:
             raise ValueError("correction_strength must be between 0 and 1")
 
-        height = width = 1024
         device = self._execution_device
         self._guidance_scale = guidance_scale
         self._attention_kwargs = {}
         self._current_timestep = None
         self._interrupt = False
 
-        condition_width, condition_height = calculate_dimensions(CONDITION_IMAGE_SIZE, 1.0)
-        vae_width, vae_height = calculate_dimensions(VAE_IMAGE_SIZE, 1.0)
+        # Keep the input aspect ratio at about one megapixel. The output and
+        # input latent grids must match for the trajectory correction, and a
+        # square input is processed at 1024 by 1024 pixels as in the paper.
+        aspect_ratio = input_image.width / input_image.height
+        condition_width, condition_height = calculate_dimensions(CONDITION_IMAGE_SIZE, aspect_ratio)
+        vae_width, vae_height = calculate_dimensions(VAE_IMAGE_SIZE, aspect_ratio)
+        width, height = vae_width, vae_height
         condition_image = self.image_processor.resize(
             input_image,
             condition_height,

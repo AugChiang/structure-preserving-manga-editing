@@ -30,21 +30,15 @@ The edit branch keeps the regular ``t_target = t_next``.
 
 Text encoding
 -------------
-The official text encoder of FLUX 3 Image Klein is Qwen3-VL-4B-Instruct, and
-the official prompt upsampler is a Qwen3.5-9B fine-tune. By project policy,
-models from the Qwen series are NOT downloaded or loaded by this repository.
-The prompt encoder is therefore an interface (:class:`Flux3PromptEncoder`):
-
-* :class:`Qwen3VLPromptEncoderPlaceholder` marks where the official encoder
-  goes and raises ``NotImplementedError`` (see its TODO comments);
-* :class:`PrecomputedPromptEncoder` loads prompt embeddings that were computed
-  elsewhere, so the transformer + VAE path can run without any Qwen weights.
+Prompts are encoded with the official text encoder, Qwen3-VL-4B-Instruct
+(:class:`Qwen3VLPromptEncoder`), which the pipeline loads together with the
+transformer and the VAE. The official prompt upsampler, a Qwen3.5-9B
+fine-tune, is not used: the experiments use the paper's exact task prompts.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Protocol
 
 import numpy as np
@@ -98,90 +92,71 @@ class Flux3PromptEncoder(Protocol):
     def encode(self, prompt: str) -> PromptEmbeddings: ...
 
 
-class Qwen3VLPromptEncoderPlaceholder:
-    """Placeholder for the official Qwen3-VL-4B-Instruct prompt encoder.
+class Qwen3VLPromptEncoder:
+    """The official FLUX 3 Image Klein prompt encoder, Qwen3-VL-4B-Instruct.
 
-    Not implemented on purpose: models from the Qwen series must not be
-    downloaded by this project.
+    Loaded from ``text_encoder/`` of the model repository (~8.9 GB in bf16).
+    Embeddings are cached per prompt, so a batch encodes its prompt once.
     """
 
-    # TODO(qwen-policy): The official FLUX 3 Image Klein text encoder is
-    #   Qwen3-VL-4B-Instruct, shipped in `black-forest-labs/flux-3-image-klein`
-    #   under `text_encoder/` (Qwen3VLForConditionalGeneration + Qwen3VLProcessor,
-    #   ~8.9 GB in bf16). It is NOT downloaded here because of the project's
-    #   no-Qwen-model policy. If the policy changes, implement `encode` as
-    #   `Flux3TextEncoderStep._get_qwen3_vl_prompt_embeds` in diffusers 0.42.1:
-    #   chat template, right padding to a multiple of FLUX3_TEXT_PAD_MULTIPLE,
-    #   explicit position ids (padding positions = 1), and the hidden states of
-    #   FLUX3_TEXT_HIDDEN_LAYERS stacked to (1, L, 20480).
-    # TODO(qwen-policy): On a 12 GB GPU (RTX 4070), the bf16 encoder plus the
-    #   transformer does not fit at once. Encode both prompts first, then free
-    #   the encoder (or load it in NF4 via bitsandbytes, ~2.5 GB) before
-    #   denoising.
-    # TODO(qwen-policy): Encode the edit prompt and the empty prompt with the
-    #   same padded length so that both can share one batched transformer call.
-    # TODO(qwen-policy): BFL also recommends a prompt upsampler
-    #   (`black-forest-labs/flux-3-image-klein-pup`, a Qwen3.5-9B fine-tune).
-    #   It is also excluded by the policy. The experiments use the paper's
-    #   exact task prompts without upsampling anyway.
-    # TODO(qwen-policy): Replacing the encoder with a non-Qwen model is not a
-    #   drop-in fix: the transformer's `context_embedder` was trained on
-    #   Qwen3-VL-4B hidden states and would need retraining or an adapter.
+    def __init__(self, text_encoder, processor) -> None:
+        self.text_encoder = text_encoder
+        self.processor = processor
+        self.device = torch.device("cpu")
+        self._cache: dict[str, PromptEmbeddings] = {}
 
-    def __init__(self, *args, **kwargs) -> None:
-        raise NotImplementedError(
-            "The FLUX 3 Image Klein text encoder (Qwen3-VL-4B-Instruct) is not integrated: "
-            "Qwen-series models are excluded by project policy. Pass precomputed prompt "
-            "embeddings with --prompt-embeds instead. See the TODO comments in "
-            "structure_preserving_manga_editing/flux3_klein.py."
+    @classmethod
+    def from_pretrained(
+        cls, model_id: str, torch_dtype: torch.dtype = torch.bfloat16
+    ) -> "Qwen3VLPromptEncoder":
+        from transformers import AutoProcessor, Qwen3VLForConditionalGeneration
+
+        processor = AutoProcessor.from_pretrained(model_id, subfolder="text_encoder")
+        text_encoder = Qwen3VLForConditionalGeneration.from_pretrained(
+            model_id, subfolder="text_encoder", torch_dtype=torch_dtype
         )
+        return cls(text_encoder.eval(), processor)
 
-    def encode(self, prompt: str) -> PromptEmbeddings:  # pragma: no cover - unreachable
-        raise NotImplementedError
+    def to(self, device: str | torch.device) -> "Qwen3VLPromptEncoder":
+        self.device = torch.device(device)
+        self.text_encoder.to(self.device)
+        return self
 
+    def enable_low_vram(self, device: str | torch.device) -> "Qwen3VLPromptEncoder":
+        """Stream the bf16 weights from CPU memory leaf by leaf, as for the transformer."""
+        from diffusers.hooks import apply_group_offloading
 
-class PrecomputedPromptEncoder:
-    """Prompt encoder backed by a safetensors file of precomputed embeddings.
+        self.device = torch.device(device)
+        # Prompts are text only, so the vision tower stays idle in CPU memory.
+        for module in (self.text_encoder.model.language_model, self.text_encoder.lm_head):
+            apply_group_offloading(
+                module,
+                onload_device=self.device,
+                offload_device=torch.device("cpu"),
+                offload_type="leaf_level",
+                use_stream=True,
+                low_cpu_mem_usage=True,
+            )
+        return self
 
-    The file maps each prompt string to its ``(1, L, 20480)`` embedding tensor.
-    Safetensors keys must be strings without special meaning, so prompts are
-    stored under ``prompt_<index>`` keys and the prompt texts are kept in the
-    file metadata under the same keys. Use :func:`save_prompt_embeddings` to
-    write a compatible file.
-    """
-
-    def __init__(self, path: str | Path, device: str | torch.device = "cpu") -> None:
-        from safetensors import safe_open
-
-        self._embeddings: dict[str, torch.Tensor] = {}
-        with safe_open(str(path), framework="pt", device=str(device)) as handle:
-            metadata = handle.metadata() or {}
-            for key in handle.keys():
-                if key not in metadata:
-                    raise ValueError(f"{path}: tensor {key!r} has no prompt text in the metadata")
-                self._embeddings[metadata[key]] = handle.get_tensor(key)
-
-    @property
-    def prompts(self) -> list[str]:
-        return list(self._embeddings)
-
+    @torch.no_grad()
     def encode(self, prompt: str) -> PromptEmbeddings:
-        if prompt not in self._embeddings:
-            raise KeyError(f"no precomputed embeddings for prompt {prompt!r}")
-        return PromptEmbeddings(self._embeddings[prompt])
+        from diffusers.modular_pipelines.flux3.encoders import Flux3TextEncoderStep
 
-
-def save_prompt_embeddings(path: str | Path, embeddings: dict[str, torch.Tensor]) -> None:
-    """Write ``{prompt: (1, L, 20480) tensor}`` in the PrecomputedPromptEncoder format."""
-    from safetensors.torch import save_file
-
-    tensors, metadata = {}, {}
-    for index, (prompt, tensor) in enumerate(embeddings.items()):
-        PromptEmbeddings(tensor)  # validate the shape
-        key = f"prompt_{index}"
-        tensors[key] = tensor.detach().contiguous().cpu()
-        metadata[key] = prompt
-    save_file(tensors, str(path), metadata=metadata)
+        if prompt in self._cache:
+            return self._cache[prompt]
+        # Reuse the Diffusers recipe: chat template, right padding to a multiple
+        # of 80 tokens, explicit padding position ids and stacked hidden states.
+        embeds = Flux3TextEncoderStep._get_qwen3_vl_prompt_embeds(
+            self.text_encoder,
+            self.processor,
+            prompt,
+            device=self.device,
+            pad_multiple=FLUX3_TEXT_PAD_MULTIPLE,
+            hidden_states_layers=FLUX3_TEXT_HIDDEN_LAYERS,
+        )
+        self._cache[prompt] = PromptEmbeddings(embeds.cpu())
+        return self._cache[prompt]
 
 
 def prepare_text_ids(sequence_length: int) -> torch.Tensor:
@@ -278,12 +253,13 @@ class StructurePreservingFlux3KleinPipeline:
     def from_pretrained(
         cls,
         model_id: str,
-        prompt_encoder: Flux3PromptEncoder,
         torch_dtype: torch.dtype = torch.bfloat16,
         transformer_gguf: str | None = None,
     ) -> "StructurePreservingFlux3KleinPipeline":
-        """Load only the BFL transformer and VAE; the text encoder is never fetched."""
+        """Load the Qwen3-VL text encoder, the transformer and the VAE."""
         from diffusers import AutoencoderKLFlux2, Flux3Transformer2DModel
+
+        prompt_encoder = Qwen3VLPromptEncoder.from_pretrained(model_id, torch_dtype=torch_dtype)
 
         if transformer_gguf:
             from diffusers import GGUFQuantizationConfig
@@ -305,13 +281,18 @@ class StructurePreservingFlux3KleinPipeline:
 
     def to(self, device: str | torch.device) -> "StructurePreservingFlux3KleinPipeline":
         self.device = torch.device(device)
+        self.prompt_encoder.to(self.device)
         self.transformer.to(self.device)
         self.vae.to(self.device)
         return self
 
     def enable_low_vram(self, device: str | torch.device) -> "StructurePreservingFlux3KleinPipeline":
-        """Stream transformer weights from CPU memory leaf by leaf; keep the small VAE on the GPU."""
+        """Stream the text encoder and transformer weights from CPU memory leaf by leaf.
+
+        The small VAE stays on the GPU.
+        """
         self.device = torch.device(device)
+        self.prompt_encoder.enable_low_vram(self.device)
         self.transformer.enable_group_offload(
             onload_device=self.device,
             offload_device="cpu",
@@ -321,6 +302,13 @@ class StructurePreservingFlux3KleinPipeline:
         )
         self.vae.to(self.device)
         return self
+
+    def _release_cached_memory(self) -> None:
+        # Streamed weights leave many differently sized blocks in the CUDA
+        # cache. Release them between the text, denoising and decoding phases,
+        # or the cache outgrows a 12 GB card and Windows spills into system RAM.
+        if self.device.type == "cuda":
+            torch.cuda.empty_cache()
 
     def _vae_bn_stats(self, dtype: torch.dtype) -> tuple[torch.Tensor, torch.Tensor]:
         bn = self.vae.bn
@@ -368,8 +356,6 @@ class StructurePreservingFlux3KleinPipeline:
         num_inference_steps: int = FLUX3_KLEIN_NUM_INFERENCE_STEPS,
         correction_steps: int = 3,
         correction_strength: float = 0.01,
-        prompt_embeds: PromptEmbeddings | None = None,
-        empty_prompt_embeds: PromptEmbeddings | None = None,
     ):
         if correction_steps < 0:
             raise ValueError("correction_steps must be non-negative")
@@ -377,10 +363,10 @@ class StructurePreservingFlux3KleinPipeline:
             raise ValueError("correction_strength must be between 0 and 1")
 
         dtype = self.dtype
-        if prompt_embeds is None:
-            prompt_embeds = self.prompt_encoder.encode(prompt)
-        if empty_prompt_embeds is None and correction_steps > 0:
+        prompt_embeds = self.prompt_encoder.encode(prompt)
+        if correction_steps > 0:
             empty_prompt_embeds = self.prompt_encoder.encode("")
+        self._release_cached_memory()
         edit_embeds = prompt_embeds.embeds.to(self.device, dtype)
         edit_text_ids = prepare_text_ids(edit_embeds.shape[1]).to(self.device)
 
@@ -454,6 +440,7 @@ class StructurePreservingFlux3KleinPipeline:
                 )
             latents = self.scheduler.step(edit_velocity, timestep, latents, return_dict=False)[0]
 
+        self._release_cached_memory()
         latents = unpack_tokens(latents, latent_height, latent_width)
         return self.decode_latents(latents, reference_crop)
 
