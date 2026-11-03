@@ -1,7 +1,8 @@
 # Hand-over: FLUX 3 Image Klein integration
 
-Written 2026-11-03 on the development PC (RTX 6000 Ada 48 GB). Work continues
-on an RTX 4070 12 GB PC.
+Written 2026-11-03 on the development PC (Linux, RTX 6000 Ada 48 GB). Work
+continues on an RTX 4070 12 GB PC running **Windows 11 with Miniconda**.
+Nothing has been run on Windows yet.
 
 ## Status
 
@@ -40,35 +41,58 @@ Blocked by policy (see `CLAUDE.md`):
 - **Prompt upsampler.** It is a Qwen3.5-9B fine-tune, so it is left out. The
   paper uses its exact task prompts anyway.
 
-## Setting up the RTX 4070 PC
+## Setting up the RTX 4070 PC (Windows 11, Miniconda)
 
-```bash
-mamba env create -f environment-flux3.yml
+Prerequisites:
+
+- An NVIDIA driver recent enough for CUDA 12.8 (R570 or newer). Check with
+  `nvidia-smi`. You do not need to install the CUDA toolkit separately,
+  because the PyTorch wheels include it.
+- **NVIDIA Control Panel → Manage 3D settings → CUDA - Sysmem Fallback
+  Policy → Prefer No Sysmem Fallback.** By default, the Windows driver
+  silently spills into system RAM when VRAM runs out. A run that does not fit
+  in 12 GB then gets very slow instead of failing, which hides the problem.
+  Turn the fallback off while measuring memory.
+
+Run these in the **Anaconda Prompt (miniconda3)**. In PowerShell, run
+`conda init powershell` once first. Each command is a single line:
+
+```powershell
+conda env create -f environment-flux3.yml
 conda activate spme-flux3
-hf auth login            # accept the FLUX 3 Image Klein terms on the model page first
+hf auth login
 python -m unittest discover -s tests
+python scripts/download_flux3_weights.py --gguf Q8_0 Q4_K_M
+python scripts/check_flux3_vram.py --variant q8
 ```
 
-Download the weights without the Qwen encoder. The first run downloads them
-too, but this makes the exclusion explicit:
+Accept the FLUX 3 Image Klein terms on the model page before you run
+`hf auth login`. `download_flux3_weights.py` never fetches `text_encoder/*`
+(Qwen). Add `--no-bf16` to skip the 11 GB BF16 transformer if you only use
+GGUF. Disk needed: about 11.5 GB for the BF16 transformer and VAE, 6.1 GB for
+Q8_0 and 3.7 GB for Q4_K_M.
 
-```bash
-python -c "
-from huggingface_hub import snapshot_download, hf_hub_download
-snapshot_download('black-forest-labs/flux-3-image-klein',
-    allow_patterns=['transformer/*', 'vae/*', 'config.json', 'LICENSE.md', 'NOTICE.md', 'README.md'])
-hf_hub_download('unsloth/flux-3-image-klein-GGUF', 'flux-3-image-klein-Q8_0.gguf')
-"
-```
+On Windows, the Hugging Face cache warns that it cannot use symlinks unless
+Developer Mode is on. This is harmless; files are copied instead.
 
-Disk needed: about 11.5 GB for the transformer and VAE, plus 6.1 GB for Q8_0.
-Add 3.7 GB if you also get Q4_K_M.
+Notes for Windows:
+
+- `--low-vram` (group offload) already pins memory one piece at a time
+  (`low_cpu_mem_usage=True`), because Windows cannot page-lock a whole large
+  model at once. It still needs about 12 GB of free system RAM for the BF16
+  transformer.
+- The desktop (DWM) uses some VRAM, often 0.5 to 1 GB, so close other GPU
+  apps before you measure.
+- The CLI only accepts relative paths. On Windows, `test-img\page.png` works.
+  `C:\...` is rejected.
 
 ## Next steps
 
-1. On the 4070, run `python scripts/check_flux3_vram.py --variant q8` and
-   `--variant q4`, with no cap. Compare the results with the table above.
-   Leave room for the desktop, which uses some VRAM.
+1. On the 4070, with sysmem fallback turned off, run
+   `python scripts/check_flux3_vram.py --variant q8`, then `--variant q4`, and
+   then `--variant bf16 --low-vram`, all with no cap. Compare the results with
+   the table above. If a run is much slower than about 2x the times listed,
+   the driver is probably spilling into system RAM.
 2. Decide how to get prompt embeddings. This is the user's decision under the
    policy. The options are a policy-approved encoder, embeddings computed
    elsewhere, or leaving FLUX 3 as is.

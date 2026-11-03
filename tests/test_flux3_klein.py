@@ -104,7 +104,8 @@ class PromptEncoderTests(unittest.TestCase):
 
     def test_precomputed_round_trip(self) -> None:
         table = {"Remove text.": embeddings(80, 1), "": embeddings(80, 2)}
-        with tempfile.TemporaryDirectory() as directory:
+        # Windows may keep the memory-mapped file open; do not fail on cleanup.
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
             path = Path(directory) / "embeds.safetensors"
             save_prompt_embeddings(path, table)
             encoder = PrecomputedPromptEncoder(path)

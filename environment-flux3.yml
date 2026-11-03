@@ -2,10 +2,11 @@
 # FLUX 3 needs diffusers >= 0.42, newer than the pinned paper environment in
 # requirements.txt, so it lives in a separate environment:
 #
-#   mamba env create -f environment-flux3.yml
+#   conda env create -f environment-flux3.yml     (Miniconda, Windows or Linux)
 #   conda activate spme-flux3
 #
-# Targets CUDA 12.8 wheels, which support the RTX 4070 (Ada, sm_89).
+# Targets CUDA 12.8 wheels, which support the RTX 4070 (Ada, sm_89) on
+# Windows 11 and Linux. They need an NVIDIA driver R570 or newer.
 name: spme-flux3
 channels:
   - conda-forge

@@ -195,9 +195,15 @@ FLUX 3 needs a newer Diffusers than the pinned paper environment, so it uses
 its own conda environment:
 
 ```bash
-mamba env create -f environment-flux3.yml
+conda env create -f environment-flux3.yml
 conda activate spme-flux3
+python scripts/download_flux3_weights.py
 ```
+
+The download script fetches only the BFL transformer, the VAE and the Q8_0
+GGUF, never the Qwen text encoder. It and the commands below also work on
+Windows 11 (Anaconda Prompt). In PowerShell, put each command on one line
+instead of using `\` line continuations.
 
 The FLUX 3 Image Klein weights are released under the FLUX Kommunity License
 (non-commercial use, with a commercial-output exception for Qualifying Users).
