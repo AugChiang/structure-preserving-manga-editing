@@ -191,11 +191,12 @@ prompt upsampler, a Qwen3.5-9B fine-tune, is not integrated; the paper's exact
 task prompts are used without upsampling.
 
 FLUX 3 needs a newer Diffusers than the pinned paper environment, so it uses
-its own conda environment:
+its own conda environment, `spme`, which it shares with the Qwen-Image 2.1
+backend:
 
 ```bash
-conda env create -f environment-flux3.yml
-conda activate spme-flux3
+conda env create -f environment.yml
+conda activate spme
 python scripts/download_flux3_weights.py
 ```
 
@@ -251,6 +252,68 @@ The correction defaults (3 steps, strength 0.01) are kept from FLUX.1 Kontext.
 On the 16-step FLUX 3 schedule they have no visible effect. Strength 0.1
 cancels the edit, and values in between change which elements get edited
 rather than keeping the structure.
+
+## Qwen-Image 2.1 (chatrlabs quantized transformer)
+
+The `qwen-image-2.1` backend (`demo_qwen_image21.py`) runs Algorithm 1 on
+[Qwen-Image 2.1](https://huggingface.co/Qwen/Qwen-Image-2.1). Its transformer is
+replaced by the GGUF build of
+[chatrlabs/Qwen-Image-2.1-Uncensored-Omni-Quantized](https://huggingface.co/chatrlabs/Qwen-Image-2.1-Uncensored-Omni-Quantized),
+a community rank-128 LoRA merge into the 7B Qwen-Image 2.1 transformer. The text
+encoder (Qwen3-VL-8B, 17.5 GB), processor and VAE come from the base repository.
+The base BF16 transformer (14 GB) is never downloaded.
+
+Sampling follows the model card: 35 steps and true CFG 5.0. The empty-prompt
+branch is both the CFG negative and the Algorithm 1 reconstruction velocity.
+Diffusers encodes `""` as `" "`, which is the negative prompt the card
+recommends. Both prompts run in one batch. The paper's task prompts and the
+correction defaults (3 steps, strength 0.01) are unchanged.
+
+It uses the same `spme` conda environment as FLUX 3 (`environment.yml`, which
+includes `bitsandbytes`):
+
+```bash
+conda env create -f environment.yml
+conda activate spme
+python scripts/download_qwen21_weights.py              # base components + Q8_0 (~27 GB)
+```
+
+The Q8_0 GGUF is the default transformer. Pass `--transformer-gguf` to use
+another build, for example
+`https://huggingface.co/chatrlabs/Qwen-Image-2.1-Uncensored-Omni-Quantized/blob/main/qwen-image-2.1-step90000-Q5_K_M.gguf`.
+On a 12 GB GPU, always pass `--low-vram`. It loads the text encoder in NF4,
+streams the transformer from CPU memory, and offloads the text encoder and the
+VAE while they are idle. Without it, the 17.5 GB text encoder alone does not
+fit.
+
+```bash
+python demo_qwen_image21.py --task text-removal --input path/to/folder --low-vram
+python demo_qwen_image21.py --task screentone-synthesis --input path/to/line_art.png --low-vram
+```
+
+`--kv-cache` caches the keys and values of the text and condition-image tokens
+after the first step, so later steps only recompute the target tokens. It is
+faster, but the cache holds K/V for 32 blocks × 2 branches and needs several
+extra GB of VRAM. It is therefore off by default.
+
+Measured on an RTX 4070 12 GB under Windows 11 with
+`scripts/check_qwen21_vram.py`. The run used `--low-vram`, the Q8_0 GGUF and no
+KV cache, and edited one 1024-by-1024 page:
+
+| Steps | Load | Edit | Peak allocated | Peak CUDA cache |
+| --- | --- | --- | --- | --- |
+| 4 (quick check) | 23 s | 124 s | 7.46 GiB | 8.42 GiB |
+| 35 (default) | 25 s | 332 s | 7.46 GiB | 8.42 GiB |
+
+Each step takes about 6.6 s. The fixed cost of about 100 s is mostly the NF4
+Qwen3-VL-8B text encoder reading the page, plus the VAE. The peak does not grow with the
+number of steps. The smaller Q5_K_M and Q4_K_M builds were not measured.
+
+The chatrlabs weights are released under the **Qwen Research License
+Agreement** (non-commercial research and evaluation only). The checkpoint is
+an "uncensored" fine-tune and ships without a prompt filter or output safety
+checker. Review both model cards before use. Quantized results may differ
+from the paper's.
 
 ## Dataset Reproduction
 
@@ -359,9 +422,10 @@ python demo_qwen_image_edit.py --task text-removal --input path/to/input.png --d
 python demo_qwen_image_edit.py --task screentone-synthesis --input path/to/input.png --dry-run
 ```
 
-The FLUX 3 tests (`tests/test_flux3_klein.py`) need the `spme-flux3`
-environment. They run a tiny, randomly initialized FLUX 3 transformer and VAE
-on the CPU, so no weights are downloaded.
+The FLUX 3 and Qwen-Image 2.1 tests (`tests/test_flux3_klein.py`,
+`tests/test_qwen_image21.py`) need the `spme` environment (`environment.yml`).
+They run tiny, randomly initialized transformers and VAEs on the CPU, so no
+weights are downloaded.
 
 ## Citation
 

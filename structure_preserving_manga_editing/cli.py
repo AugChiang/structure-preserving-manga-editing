@@ -9,7 +9,15 @@ from pathlib import Path
 
 from PIL import Image
 
-from .tasks import FLUX3_KLEIN_MODEL_ID, FLUX_MODEL_ID, TASKS
+from .tasks import (
+    FLUX3_KLEIN_MODEL_ID,
+    FLUX_MODEL_ID,
+    QWEN_IMAGE21_MODEL_ID,
+    QWEN_IMAGE21_TRANSFORMER_GGUF,
+    TASKS,
+)
+
+QWEN_IMAGE21_BACKEND = "qwen-image-2.1"
 
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".webp"}
 
@@ -61,6 +69,14 @@ def build_parser(backend: str) -> argparse.ArgumentParser:
         action="store_true",
         help="Validate and print the resolved configuration without loading a model.",
     )
+    if backend == QWEN_IMAGE21_BACKEND:
+        parser.set_defaults(transformer_gguf=QWEN_IMAGE21_TRANSFORMER_GGUF)
+        parser.add_argument(
+            "--kv-cache",
+            action="store_true",
+            help="Cache the text and condition-image keys and values after the first "
+            "step. Faster, but needs several GB of extra VRAM.",
+        )
     return parser
 
 
@@ -73,6 +89,7 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
         model_id = {
             "flux-kontext": FLUX_MODEL_ID,
             "flux3-klein": FLUX3_KLEIN_MODEL_ID,
+            QWEN_IMAGE21_BACKEND: QWEN_IMAGE21_MODEL_ID,
         }.get(backend, task.qwen_model_id)
 
     if input_path.is_absolute() or output_path.is_absolute():
@@ -96,9 +113,16 @@ def resolve_config(backend: str, args: argparse.Namespace) -> dict:
         "device": args.device,
         "correction_steps": args.correction_steps,
         "correction_strength": args.correction_strength,
-        "num_inference_steps": {"flux-kontext": 28, "flux3-klein": 16}.get(backend, 40),
-        "transformer_gguf": getattr(args, "transformer_gguf", None),
+        "num_inference_steps": {"flux-kontext": 28, "flux3-klein": 16, QWEN_IMAGE21_BACKEND: 35}.get(
+            backend, 40
+        ),
+        "transformer_gguf": getattr(
+            args,
+            "transformer_gguf",
+            QWEN_IMAGE21_TRANSFORMER_GGUF if backend == QWEN_IMAGE21_BACKEND else None,
+        ),
         "low_vram": getattr(args, "low_vram", False),
+        **({"kv_cache": getattr(args, "kv_cache", False)} if backend == QWEN_IMAGE21_BACKEND else {}),
     }
 
 
@@ -229,6 +253,18 @@ def run_cli(backend: str) -> None:
             config,
             dtype,
         )
+    elif backend == QWEN_IMAGE21_BACKEND:
+        from diffusers import QwenImage21Transformer2DModel
+
+        from .qwen_image21 import StructurePreservingQwenImage21Pipeline
+
+        pipeline = load_pipeline(
+            StructurePreservingQwenImage21Pipeline,
+            QwenImage21Transformer2DModel,
+            "text_encoder",
+            config,
+            dtype,
+        )
     else:
         from diffusers import QwenImageTransformer2DModel
 
@@ -255,6 +291,7 @@ def run_cli(backend: str) -> None:
             width = round((1024 * 1024 * aspect_ratio) ** 0.5 / 16) * 16
             height = round(width / aspect_ratio / 16) * 16
             model_input = image.resize((width, height), Image.Resampling.LANCZOS)
+        extra = {"use_kv_cache": config["kv_cache"]} if backend == QWEN_IMAGE21_BACKEND else {}
         result = pipeline.edit(
             model_input,
             config["prompt"],
@@ -262,6 +299,7 @@ def run_cli(backend: str) -> None:
             num_inference_steps=config["num_inference_steps"],
             correction_steps=config["correction_steps"],
             correction_strength=config["correction_strength"],
+            **extra,
         )
         # The model runs near one megapixel; restore the input resolution.
         if result.size != image.size:

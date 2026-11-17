@@ -36,3 +36,15 @@ TASKS = {
 
 FLUX_MODEL_ID = "black-forest-labs/FLUX.1-Kontext-dev"
 FLUX3_KLEIN_MODEL_ID = "black-forest-labs/flux-3-image-klein"
+
+# Qwen-Image 2.1: the text encoder (Qwen3-VL-8B), processor and VAE come from
+# the base repository; the transformer is replaced by a quantized fine-tune.
+QWEN_IMAGE21_MODEL_ID = "Qwen/Qwen-Image-2.1"
+_CHATRLABS_QWEN_IMAGE21 = (
+    "https://huggingface.co/chatrlabs/Qwen-Image-2.1-Uncensored-Omni-Quantized/blob/main/"
+    "qwen-image-2.1-step90000-{}.gguf"
+)
+QWEN_IMAGE21_GGUF_Q8 = _CHATRLABS_QWEN_IMAGE21.format("Q8_0")
+QWEN_IMAGE21_GGUF_Q5 = _CHATRLABS_QWEN_IMAGE21.format("Q5_K_M")
+QWEN_IMAGE21_GGUF_Q4 = _CHATRLABS_QWEN_IMAGE21.format("Q4_K_M")
+QWEN_IMAGE21_TRANSFORMER_GGUF = QWEN_IMAGE21_GGUF_Q8
