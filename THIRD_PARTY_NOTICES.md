@@ -9,8 +9,9 @@ No model weights, Manga109-s images, or font binaries are distributed here.
 
 The model-specific sampler integrations in
 `structure_preserving_manga_editing/flux_kontext.py`,
-`structure_preserving_manga_editing/flux3_klein.py`, and
-`structure_preserving_manga_editing/qwen_image_edit.py` are modified from the
+`structure_preserving_manga_editing/flux3_klein.py`,
+`structure_preserving_manga_editing/qwen_image_edit.py`, and
+`structure_preserving_manga_editing/qwen_image21.py` are modified from the
 corresponding Hugging Face Diffusers pipelines.
 
 - Source: <https://github.com/huggingface/diffusers>
@@ -43,6 +44,16 @@ The following checkpoints are downloaded separately at runtime:
 - `Qwen/Qwen-Image-Edit-2511`
   - Model card: <https://huggingface.co/Qwen/Qwen-Image-Edit-2511>
   - License: Apache License 2.0
+- `Qwen/Qwen-Image-2.1` (text encoder, processor, VAE and scheduler; the
+  BF16 transformer is not downloaded)
+  - Model card: <https://huggingface.co/Qwen/Qwen-Image-2.1>
+  - Terms: those published with the checkpoint
+- `chatrlabs/Qwen-Image-2.1-Uncensored-Omni-Quantized` (quantized transformer
+  of the `qwen-image-2.1` backend; a community LoRA merge into Qwen-Image 2.1)
+  - Model card:
+    <https://huggingface.co/chatrlabs/Qwen-Image-2.1-Uncensored-Omni-Quantized>
+  - Terms: Qwen Research License Agreement (non-commercial research and
+    evaluation only)
 
 Users are responsible for reviewing and complying with the current terms
 published with each checkpoint.
